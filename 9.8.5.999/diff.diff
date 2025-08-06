@@ -1,0 +1,68 @@
+diff --git a/plugins/woocommerce/includes/data-stores/class-wc-product-variation-data-store-cpt.php b/plugins/woocommerce/includes/data-stores/class-wc-product-variation-data-store-cpt.php
+index 07dc397620..87190c2680 100644
+--- a/plugins/woocommerce/includes/data-stores/class-wc-product-variation-data-store-cpt.php
++++ b/plugins/woocommerce/includes/data-stores/class-wc-product-variation-data-store-cpt.php
+@@ -89,26 +89,33 @@ class WC_Product_Variation_Data_Store_CPT extends WC_Product_Data_Store_CPT impl
+ 		$product->set_attributes( wc_get_product_variation_attributes( $product->get_id() ) );
+ 
+ 		$updates = array();
+-		/**
+-		 * If a variation title is not in sync with the parent e.g. saved prior to 3.0, or if the parent title has changed, detect here and update.
+-		 */
+-		$new_title = $this->generate_product_title( $product );
++		$a8c_skip_regen = ! empty( $_REQUEST['a8c_skip_regen'] ) && 'yes' === sanitize_text_field( wp_unslash( $_REQUEST['a8c_skip_regen'] ) );
+ 
+-		if ( $post_object->post_title !== $new_title ) {
+-			$product->set_name( $new_title );
+-			$updates = array_merge( $updates, array( 'post_title' => $new_title ) );
+-		}
++		if ( ! $a8c_skip_regen ) {
++			header('X-WC-Product-Variation-Regen-' . $product->get_id() . ': Calculated' );
++			/**
++			* If a variation title is not in sync with the parent e.g. saved prior to 3.0, or if the parent title has changed, detect here and update.
++			*/
++			$new_title = $this->generate_product_title( $product );
+ 
+-		/**
+-		 * If the attribute summary is not in sync, update here. Used when searching for variations by attribute values.
+-		 * This is meant to also cover the case when global attribute name or value is updated, then the attribute summary is updated
+-		 * for respective products when they're read.
+-		 */
+-		$new_attribute_summary = $this->generate_attribute_summary( $product );
++			if ( $post_object->post_title !== $new_title ) {
++				$product->set_name( $new_title );
++				$updates = array_merge( $updates, array( 'post_title' => $new_title ) );
++			}
+ 
+-		if ( $new_attribute_summary !== $post_object->post_excerpt ) {
+-			$product->set_attribute_summary( $new_attribute_summary );
+-			$updates = array_merge( $updates, array( 'post_excerpt' => $new_attribute_summary ) );
++			/**
++			* If the attribute summary is not in sync, update here. Used when searching for variations by attribute values.
++			* This is meant to also cover the case when global attribute name or value is updated, then the attribute summary is updated
++			* for respective products when they're read.
++			*/
++			$new_attribute_summary = $this->generate_attribute_summary( $product );
++
++			if ( $new_attribute_summary !== $post_object->post_excerpt ) {
++				$product->set_attribute_summary( $new_attribute_summary );
++				$updates = array_merge( $updates, array( 'post_excerpt' => $new_attribute_summary ) );
++			}
++		} else {
++			header('X-WC-Product-Variation-Regen-' . $product->get_id() . ': Skipped' );
+ 		}
+ 
+ 		if ( ! empty( $updates ) ) {
+diff --git a/plugins/woocommerce/woocommerce.php b/plugins/woocommerce/woocommerce.php
+index a5a02243c5..bbea265140 100644
+--- a/plugins/woocommerce/woocommerce.php
++++ b/plugins/woocommerce/woocommerce.php
+@@ -3,7 +3,7 @@
+  * Plugin Name: WooCommerce
+  * Plugin URI: https://woocommerce.com/
+  * Description: An ecommerce toolkit that helps you sell anything. Beautifully.
+- * Version: 9.8.5
++ * Version: 9.8.5.999
+  * Author: Automattic
+  * Author URI: https://woocommerce.com
+  * Text Domain: woocommerce
