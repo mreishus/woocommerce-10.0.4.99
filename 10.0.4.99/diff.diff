@@ -1,0 +1,124 @@
+diff --git a/plugins/woocommerce/includes/data-stores/class-wc-product-variation-data-store-cpt.php b/plugins/woocommerce/includes/data-stores/class-wc-product-variation-data-store-cpt.php
+index 07dc397620..ffcce29639 100644
+--- a/plugins/woocommerce/includes/data-stores/class-wc-product-variation-data-store-cpt.php
++++ b/plugins/woocommerce/includes/data-stores/class-wc-product-variation-data-store-cpt.php
+@@ -89,26 +89,30 @@ class WC_Product_Variation_Data_Store_CPT extends WC_Product_Data_Store_CPT impl
+ 		$product->set_attributes( wc_get_product_variation_attributes( $product->get_id() ) );
+ 
+ 		$updates = array();
+-		/**
+-		 * If a variation title is not in sync with the parent e.g. saved prior to 3.0, or if the parent title has changed, detect here and update.
+-		 */
+-		$new_title = $this->generate_product_title( $product );
++		$a8c_skip_regen = ! empty( $_REQUEST['a8c_skip_regen'] ) && 'yes' === sanitize_text_field( wp_unslash( $_REQUEST['a8c_skip_regen'] ) );
+ 
+-		if ( $post_object->post_title !== $new_title ) {
+-			$product->set_name( $new_title );
+-			$updates = array_merge( $updates, array( 'post_title' => $new_title ) );
+-		}
++		if ( ! $a8c_skip_regen ) {
++			/**
++			* If a variation title is not in sync with the parent e.g. saved prior to 3.0, or if the parent title has changed, detect here and update.
++			*/
++			$new_title = $this->generate_product_title( $product );
+ 
+-		/**
+-		 * If the attribute summary is not in sync, update here. Used when searching for variations by attribute values.
+-		 * This is meant to also cover the case when global attribute name or value is updated, then the attribute summary is updated
+-		 * for respective products when they're read.
+-		 */
+-		$new_attribute_summary = $this->generate_attribute_summary( $product );
++			if ( $post_object->post_title !== $new_title ) {
++				$product->set_name( $new_title );
++				$updates = array_merge( $updates, array( 'post_title' => $new_title ) );
++			}
+ 
+-		if ( $new_attribute_summary !== $post_object->post_excerpt ) {
+-			$product->set_attribute_summary( $new_attribute_summary );
+-			$updates = array_merge( $updates, array( 'post_excerpt' => $new_attribute_summary ) );
++			/**
++			* If the attribute summary is not in sync, update here. Used when searching for variations by attribute values.
++			* This is meant to also cover the case when global attribute name or value is updated, then the attribute summary is updated
++			* for respective products when they're read.
++			*/
++			$new_attribute_summary = $this->generate_attribute_summary( $product );
++
++			if ( $new_attribute_summary !== $post_object->post_excerpt ) {
++				$product->set_attribute_summary( $new_attribute_summary );
++				$updates = array_merge( $updates, array( 'post_excerpt' => $new_attribute_summary ) );
++			}
+ 		}
+ 
+ 		if ( ! empty( $updates ) ) {
+diff --git a/plugins/woocommerce/src/Blocks/Utils/ProductGalleryUtils.php b/plugins/woocommerce/src/Blocks/Utils/ProductGalleryUtils.php
+index ea3ffb8cd9..4a4e874430 100644
+--- a/plugins/woocommerce/src/Blocks/Utils/ProductGalleryUtils.php
++++ b/plugins/woocommerce/src/Blocks/Utils/ProductGalleryUtils.php
+@@ -115,22 +115,44 @@ class ProductGalleryUtils {
+ 			return $variation_image_ids;
+ 		}
+ 
+-		try {
+-			if ( $product->is_type( 'variable' ) ) {
+-				$variations = $product->get_children();
+-				foreach ( $variations as $variation_id ) {
+-					$variation = wc_get_product( $variation_id );
+-					if ( $variation ) {
+-						$variation_image_id = $variation->get_image_id();
++		$a8c_fast_var_images = ! empty( $_REQUEST['a8c_fast_var_images'] ) && 'yes' === sanitize_text_field( wp_unslash( $_REQUEST['a8c_fast_var_images'] ) );
++		if ( $a8c_fast_var_images ) {
++			try {
++				if ( $product->is_type( 'variable' ) ) {
++					$variations      = $product->get_children();
++					$parent_image_id = $product->get_image_id();
++					foreach ( $variations as $variation_id ) {
++						$variation_image_id = get_post_meta( $variation_id, '_thumbnail_id', true );
++						if ( ! $variation_image_id ) {
++							$variation_image_id = $parent_image_id;
++						}
+ 						if ( ! empty( $variation_image_id ) && ! in_array( strval( $variation_image_id ), $variation_image_ids, true ) ) {
+ 							$variation_image_ids[] = strval( $variation_image_id );
+ 						}
+ 					}
+ 				}
++			} catch ( \Exception $e ) {
++				// Log the error but continue execution.
++				error_log( 'Error getting product variation image IDs: ' . $e->getMessage() );
++			}
++		} else {
++			try {
++				if ( $product->is_type( 'variable' ) ) {
++					$variations = $product->get_children();
++					foreach ( $variations as $variation_id ) {
++						$variation = wc_get_product( $variation_id );
++						if ( $variation ) {
++							$variation_image_id = $variation->get_image_id();
++							if ( ! empty( $variation_image_id ) && ! in_array( strval( $variation_image_id ), $variation_image_ids, true ) ) {
++								$variation_image_ids[] = strval( $variation_image_id );
++							}
++						}
++					}
++				}
++			} catch ( \Exception $e ) {
++				// Log the error but continue execution.
++				error_log( 'Error getting product variation image IDs: ' . $e->getMessage() );
+ 			}
+-		} catch ( \Exception $e ) {
+-			// Log the error but continue execution.
+-			error_log( 'Error getting product variation image IDs: ' . $e->getMessage() );
+ 		}
+ 
+ 		return $variation_image_ids;
+diff --git a/plugins/woocommerce/woocommerce.php b/plugins/woocommerce/woocommerce.php
+index 3795f30f43..7533d7a0f5 100644
+--- a/plugins/woocommerce/woocommerce.php
++++ b/plugins/woocommerce/woocommerce.php
+@@ -3,7 +3,7 @@
+  * Plugin Name: WooCommerce
+  * Plugin URI: https://woocommerce.com/
+  * Description: An ecommerce toolkit that helps you sell anything. Beautifully.
+- * Version: 10.0.4
++ * Version: 10.0.4.999
+  * Author: Automattic
+  * Author URI: https://woocommerce.com
+  * Text Domain: woocommerce
